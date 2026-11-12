@@ -1,50 +1,35 @@
 # agents/research_agent.py
 import json
-
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
+from retriever import CharcuteriaRAGSystem
+
+rag_system = CharcuteriaRAGSystem()
+rag_retriever = rag_system.get_retriever(k=3)
 
 
-def calcular_mezcla_charcuteria(peso_carne_kg: float, tipo_producto: str) -> str:
-    """Calcula los gramos de aditivos y la merma esperada en el secadero para un lote."""
-    # Proporciones estándar por kilo de carne
-    sal_g = peso_carne_kg * 22
-    cura_g = peso_carne_kg * 2.5
-    pimienta_g = peso_carne_kg * 3
-    
-    # Merma estimada en el secadero (32% - 38%)
-    peso_min = peso_carne_kg * 1000 * (1 - 0.38)
-    peso_max = peso_carne_kg * 1000 * (1 - 0.32)
-
-    resultado = {
-        "producto": tipo_producto,
-        "peso_inicial_kg": peso_carne_kg,
-        "receta_gramos": {
-            "sal_fina": round(sal_g, 1),
-            "sales_de_cura": round(cura_g, 1),
-            "pimienta_negra": round(pimienta_g, 1),
-        },
-        "merma_secadero_esperada": {
-            "rango_porcentaje": "32% - 38%",
-            "peso_final_min_g": round(peso_min, 1),
-            "peso_final_max_g": round(peso_max, 1),
-        }
-    }
-    return json.dumps(resultado, ensure_ascii=False)
+def buscar_recetas_y_mermas(query: str) -> str:
+    """Busca información técnica, recetas, proporciones y mermas en la base de conocimiento RAG de Charcutería La Merced."""
+    try:
+        docs = rag_retriever.invoke(query)
+        contexto = "\n".join([doc.page_content for doc in docs])
+        return json.dumps({
+            "fuentes_encontradas": len(docs),
+            "informacion_tecnica": contexto
+        }, ensure_ascii=False)
+    except Exception as e:
+        return json.dumps({"error": str(e)}, ensure_ascii=False)
 
 
 def crear_research_agent(llm: ChatOpenAI):
-    """Crea el agente especialista en recetas y mermas con instrucciones estrictas."""
-    tools = [calcular_mezcla_charcuteria]
+    tools = [buscar_recetas_y_mermas]
     llm_with_tools = llm.bind_tools(tools)
 
     system_prompt = (
-        "Sos el Agente de Investigación y Recetas de Charcutería La Merced. "
-        "Tu única tarea es calcular la formulación de aditivos (sal, sales de cura, especias) "
-        "y la merma estimada en el secadero para UN LOTE GLOBAL de producción cárnica. "
-        "NUNCA dividas un mismo lote en subproductos separados (por ejemplo, no calcules el salame por un lado "
-        "y el tocino por otro si forman parte de la misma masa del lote). "
-        "Utiliza la herramienta 'calcular_mezcla_charcuteria' una sola vez por lote."
+        "Sos el Agente de Búsqueda e Investigación de Charcutería La Merced. "
+        "Tu rol es consultar la base de conocimiento técnico (RAG) utilizando la herramienta 'buscar_recetas_y_mermas' "
+        "para extraer recetas exactas, proporciones de ingredientes y parámetros de merma de secadero. "
+        "Sé preciso y entrégale los datos duros al supervisor."
     )
 
     prompt = ChatPromptTemplate.from_messages([
